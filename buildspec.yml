@@ -3,30 +3,30 @@ version: 0.2
 phases:
   install:
     commands:
-      - echo "Install JDK 17 and Maven"
-      - yum install -y java-17-amazon-corretto-headless maven || true
+      - echo "Install JDK 17 & Maven if needed"
+      - yum -y install java-17-amazon-corretto-headless maven || (apt-get update && apt-get -y install openjdk-17-jdk maven)
   build:
     commands:
-      - echo "Build Spring Boot app (skip tests for speed)"
-      - cd app
-      - mvn -B -DskipTests clean package
-      - cd ..
+      - |
+        # 프로젝트 위치 자동 감지
+        if [ -f pom.xml ]; then
+          PROJECT_DIR=.
+        elif [ -f app/pom.xml ]; then
+          PROJECT_DIR=app
+        else
+          echo "No pom.xml found"; exit 1
+        fi
+        echo "Using project dir: $PROJECT_DIR"
+        mvn -f "$PROJECT_DIR/pom.xml" -B -DskipTests clean package
+        export JAR_DIR="$PROJECT_DIR/target"
   post_build:
     commands:
-      - echo "Create build metadata"
-      - mkdir -p app/public
-      - |
-        cat > app/public/build.json <<'EOF'
-        {
-          "commit": "${CODEBUILD_RESOLVED_SOURCE_VERSION}",
-          "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        }
-        EOF
-      - echo "Prepare artifact layout"
-      - mkdir -p artifact/app/build/libs
+      - echo "Bundle artifacts for CodeDeploy"
+      - mkdir -p artifact/app/build/libs artifact/app/public
+      - cp ${JAR_DIR}/*.jar artifact/app/build/libs/app.jar
       - cp -r appspec.yml scripts systemd artifact/
-      - cp app/target/*.jar artifact/app/build/libs/app.jar
-      - cp app/public/build.json artifact/app/public/build.json
+      - printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
+
 artifacts:
   files:
     - appspec.yml
