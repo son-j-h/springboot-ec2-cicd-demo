@@ -16,8 +16,10 @@ phases:
       - set -euxo pipefail
       - echo "pom.xml 위치 자동 탐색"
       - |
-        PROJECT_DIR="$(dirname "$(find . -type f -name pom.xml ! -path '*/target/*' | head -n1)")"
-        if [ -z "${PROJECT_DIR:-}" ]; then
+        # find 명령어로 pom.xml을 찾고, 그 파일의 디렉토리를 PROJECT_DIR에 저장합니다.
+        # 여러 개가 있을 경우, 첫 번째 파일을 사용합니다.
+        PROJECT_DIR=$(find . -type f -name pom.xml -not -path '*/target/*' -not -path '*/.mvn/wrapper/*' | head -n1 | xargs dirname)
+        if [ -z "${PROJECT_DIR}" ]; then
           echo "❌ pom.xml을 찾지 못했습니다."; find . -maxdepth 3 -type d -print; exit 1
         fi
         echo "✅ PROJECT_DIR=$PROJECT_DIR"
@@ -28,9 +30,16 @@ phases:
       - set -euxo pipefail
       - source /tmp/build_vars.sh
       - echo "Maven 빌드 실행 (DIR=$PROJECT_DIR)"
-      - mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
       - |
-        # JAR 경로 계산 (sources/javadoc/original 제외)
+        if [ -n "$PROJECT_DIR" ]; then
+          cd "$PROJECT_DIR"
+        fi
+      - mvn -B -DskipTests clean package
+      - |
+        # 빌드 후 artifacts 경로를 올바르게 지정
+        if [ -n "$PROJECT_DIR" ]; then
+          cd "$CODEBUILD_SRC_DIR"
+        fi
         JAR_PATH="$(find "$PROJECT_DIR/target" -maxdepth 1 -type f -name '*.jar' \
           ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-original.jar' | head -n1)"
         if [ -z "${JAR_PATH:-}" ]; then
