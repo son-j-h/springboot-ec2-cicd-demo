@@ -2,56 +2,43 @@ version: 0.2
 
 phases:
   install:
-    runtime-versions:
-      java: corretto17
     commands:
       - |
         set -euxo pipefail
-        echo "Install Maven if missing"
+        # Maven/Java 없으면 설치(이미 있으면 스킵)
         if ! command -v mvn >/dev/null 2>&1; then
           yum -y install maven || (apt-get update && apt-get -y install maven)
         fi
-        mvn -version
+        mvn -version || true
+        java -version || true
 
   pre_build:
     commands:
       - |
         set -euxo pipefail
-        echo "=== TOP-LEVEL LIST ==="; ls -la
-        echo "=== TOP 3-LEVEL TREE ==="; find . -maxdepth 3 -print | sed -n '1,200p'
-        # 1) 흔한 후보 경로 먼저 시도
-        PROJECT_DIR=""
-        for d in . app src springboot-ec2-cicd-demo springboot-ec2-cicd-demo/app; do
-          if [ -f "$d/pom.xml" ]; then PROJECT_DIR="$d"; break; fi
-        done
-        # 2) 그래도 못 찾으면 전체 검색
-        if [ -z "${PROJECT_DIR}" ]; then
-          POM="$(find . -type f -name pom.xml ! -path '*/target/*' -print -quit || true)"
-          if [ -n "${POM}" ]; then PROJECT_DIR="$(dirname "$POM")"; fi
-        fi
-        if [ -z "${PROJECT_DIR}" ]; then
-          echo "❌ pom.xml not found anywhere under workspace"
+        PROJECT_DIR="app"
+        # app/pom.xml 있는지 확정 체크(없으면 트리 찍고 실패)
+        if [ ! -f "$PROJECT_DIR/pom.xml" ]; then
+          echo "❌ app/pom.xml not found in workspace"; pwd; ls -la; find . -maxdepth 3 -name pom.xml -print || true
           exit 1
         fi
-        echo "✅ PROJECT_DIR=${PROJECT_DIR}"
         printf 'export PROJECT_DIR=%q\n' "$PROJECT_DIR" > /tmp/build_vars.sh
+        echo "✅ PROJECT_DIR=$PROJECT_DIR"
 
   build:
     commands:
       - |
         set -euxo pipefail
         source /tmp/build_vars.sh
-        echo "Building with pom: ${PROJECT_DIR}/pom.xml"
-        mvn -B -DskipTests -f "${PROJECT_DIR}/pom.xml" clean package
-        # pick the main app jar (exclude sources/javadoc/original)
-        JAR_PATH="$(ls -1 "${PROJECT_DIR}/target"/*.jar 2>/dev/null | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1 || true)"
-        if [ -z "${JAR_PATH}" ]; then
-          echo "❌ JAR not found under ${PROJECT_DIR}/target"
-          ls -la "${PROJECT_DIR}/target" || true
-          exit 1
+        echo "Building with $PROJECT_DIR/pom.xml"
+        mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
+        # 메인 JAR 선택(원본/소스/자바독 제외)
+        JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar 2>/dev/null | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1 || true)"
+        if [ -z "${JAR_PATH:-}" ]; then
+          echo "❌ JAR not found under $PROJECT_DIR/target"; ls -la "$PROJECT_DIR/target" || true; exit 1
         fi
-        echo "✅ JAR_PATH=${JAR_PATH}"
         printf 'export JAR_PATH=%q\n' "$JAR_PATH" >> /tmp/build_vars.sh
+        echo "✅ JAR_PATH=$JAR_PATH"
 
   post_build:
     commands:
@@ -60,7 +47,7 @@ phases:
         source /tmp/build_vars.sh
         echo "Bundling artifacts"
         mkdir -p artifact/app/build/libs artifact/app/public
-        cp "${JAR_PATH}" artifact/app/build/libs/app.jar
+        cp "$JAR_PATH" artifact/app/build/libs/app.jar
         [ -f appspec.yml ] && cp appspec.yml artifact/ || echo "⚠️ appspec.yml not found"
         [ -d scripts ] && cp -r scripts artifact/ || echo "⚠️ scripts/ not found"
         [ -d systemd ] && cp -r systemd artifact/ || echo "⚠️ systemd/ not found"
