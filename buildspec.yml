@@ -2,92 +2,51 @@ version: 0.2
 
 phases:
   install:
-    runtime-versions:
-      java: corretto17
     commands:
-      - echo "Install Maven if needed"
-      - yum -y install maven || (apt-get update && apt-get -y install maven)
-      - java -version
-      - mvn -version
-
-  pre_build:
-    commands:
-      - echo "Pre-build phase"
-      - |
-        # Maven 프로젝트 위치 자동 감지
-        if [ -f pom.xml ]; then
-          MVN_DIR=.
-          echo "Found pom.xml in root directory"
-        elif [ -f app/pom.xml ]; then
-          MVN_DIR=app
-          echo "Found pom.xml in app directory"
-        else
-          echo "ERROR: No pom.xml found in root or app directory"
-          ls -la
-          exit 1
-        fi
-        echo "Maven project directory: $MVN_DIR"
-        echo "MVN_DIR=$MVN_DIR" >> $CODEBUILD_SRC_DIR/build_env.sh
+      - set -euxo pipefail
+      - echo "Install JDK 17 & Maven if needed"
+      - yum -y install java-17-amazon-corretto-headless maven || (apt-get update && apt-get -y install openjdk-17-jdk maven)
+      - mvn -v || true
 
   build:
     commands:
-      - echo "Starting build phase"
-      - source $CODEBUILD_SRC_DIR/build_env.sh
-      - echo "Building in: $MVN_DIR"
-      - export MAVEN_OPTS="-Xmx1024m"
+      - set -euxo pipefail
+      - echo "Detect project dir"
       - |
-        # Show pom.xml content for debugging
-        echo "=== POM.XML CONTENT ==="
-        cat "$MVN_DIR/pom.xml"
-        echo "======================"
+        PROJECT_DIR="$(find . -maxdepth 3 -type f -name pom.xml -printf '%h\n' | head -n1)"
+        if [ -z "$PROJECT_DIR" ]; then echo "No pom.xml found"; exit 1; fi
+        echo "Building in: $PROJECT_DIR"
+        mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
       - |
-        # Run Maven build with verbose output
-        echo "Running Maven clean package..."
-        mvn -f "$MVN_DIR/pom.xml" -B -DskipTests -e -X clean package
-        BUILD_STATUS=$?
-        if [ $BUILD_STATUS -ne 0 ]; then
-          echo "ERROR: Maven build failed with status $BUILD_STATUS"
-          echo "Checking for any generated files..."
-          find . -name "*.jar" -type f 2>/dev/null || echo "No JAR files found"
-          exit $BUILD_STATUS
+        # Save jar path for this phase (for debugging)
+        if ls "$PROJECT_DIR/target"/*.jar >/dev/null 2>&1; then
+          JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar | head -n1)"
+          echo "Built JAR (build phase): $JAR_PATH"
+        else
+          echo "No JAR produced"; exit 1
         fi
-        echo "Maven build completed successfully"
 
   post_build:
     commands:
-      - echo "Starting post-build phase"
-      - source $CODEBUILD_SRC_DIR/build_env.sh
+      - set -euxo pipefail
       - echo "Bundle artifacts for CodeDeploy"
       - |
-        # 빌드 결과 JAR 경로 재계산
-        echo "Looking for JAR files..."
-        find . -name "*.jar" -type f 2>/dev/null || echo "No JAR files found anywhere"
-        
-        if ls $MVN_DIR/target/*.jar >/dev/null 2>&1; then
-          JAR_PATH=$(ls -1 $MVN_DIR/target/*.jar | head -n1)
-          echo "Found JAR in $MVN_DIR/target/: $JAR_PATH"
-        else
-          echo "ERROR: JAR not found in $MVN_DIR/target/"
-          echo "Directory contents:"
-          ls -la $MVN_DIR/target/ 2>/dev/null || echo "target directory doesn't exist"
-          exit 1
-        fi
-        
+        # Recompute locations (phases don't share shell vars)
+        PROJECT_DIR="$(find . -maxdepth 3 -type f -name pom.xml -printf '%h\n' | head -n1)"
+        [ -n "$PROJECT_DIR" ] || { echo "No pom.xml found in post_build"; exit 1; }
+        JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar | head -n1)"
+        [ -n "$JAR_PATH" ] || { echo "JAR not found in post_build"; exit 1; }
         echo "Using JAR: $JAR_PATH"
-        echo "JAR_PATH=$JAR_PATH" >> $CODEBUILD_SRC_DIR/build_env.sh
-      - source $CODEBUILD_SRC_DIR/build_env.sh
       - mkdir -p artifact/app/build/libs artifact/app/public
       - cp "$JAR_PATH" artifact/app/build/libs/app.jar
-      - |
-        # Copy other required files if they exist
-        [ -f appspec.yml ] && cp appspec.yml artifact/ || echo "Warning: appspec.yml not found"
-        [ -d scripts ] && cp -r scripts artifact/ || echo "Warning: scripts directory not found"
-        [ -d systemd ] && cp -r systemd artifact/ || echo "Warning: systemd directory not found"
+      - cp -r appspec.yml scripts systemd artifact/
       - printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
-      - echo "Artifact structure:"
-      - find artifact -type f
 
 artifacts:
   files:
-    - '**/*'
+    - appspec.yml
+    - scripts/**/*
+    - systemd/**/*
+    - app/build/libs/app.jar
+    - app/public/build.json
   base-directory: artifact
