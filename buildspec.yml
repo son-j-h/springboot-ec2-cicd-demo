@@ -8,40 +8,20 @@ phases:
       - yum -y install java-17-amazon-corretto-headless maven || (apt-get update && apt-get -y install openjdk-17-jdk maven)
       - mvn -v || true
 
-  pre_build:
-    commands:
-      - set -euxo pipefail
-      - echo "=== DEBUGGING: Current directory structure ==="
-      - pwd
-      - ls -la
-      - echo "=== DEBUGGING: Finding all pom.xml files ==="
-      - find . -name "pom.xml" -type f || echo "No pom.xml files found anywhere"
-      - echo "=== DEBUGGING: Directory tree (first 4 levels) ==="
-      - find . -maxdepth 4 -type d | head -20
-
   build:
     commands:
       - set -euxo pipefail
       - echo "Detect project dir"
       - |
-        # 더 넓은 범위에서 pom.xml 찾기
-        PROJECT_DIR="$(find . -name pom.xml -type f -printf '%h\n' | head -n1)"
-        if [ -z "$PROJECT_DIR" ]; then 
-          echo "No pom.xml found anywhere in the workspace"
-          echo "Available files:"
-          find . -type f | head -20
-          exit 1
-        fi
+        PROJECT_DIR="$(find . -maxdepth 3 -type f -name pom.xml -printf '%h\n' | head -n1)"
+        if [ -z "$PROJECT_DIR" ]; then echo "No pom.xml found"; exit 1; fi
         echo "Building in: $PROJECT_DIR"
-        cd "$PROJECT_DIR"
-        mvn -B -DskipTests clean package
+        mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
       - |
-        # JAR 파일 확인
-        if ls target/*.jar >/dev/null 2>&1; then
-          JAR_PATH="$(ls -1 target/*.jar | head -n1)"
-          echo "Built JAR: $JAR_PATH"
-          # 절대 경로로 JAR 위치 저장
-          echo "$(pwd)/$(basename $JAR_PATH)" > /tmp/jar_path.txt
+        # Save jar path for this phase (for debugging)
+        if ls "$PROJECT_DIR/target"/*.jar >/dev/null 2>&1; then
+          JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar | head -n1)"
+          echo "Built JAR (build phase): $JAR_PATH"
         else
           echo "No JAR produced"; exit 1
         fi
@@ -51,27 +31,16 @@ phases:
       - set -euxo pipefail
       - echo "Bundle artifacts for CodeDeploy"
       - |
-        # 저장된 JAR 경로 사용
-        if [ -f /tmp/jar_path.txt ]; then
-          JAR_PATH="$(cat /tmp/jar_path.txt)"
-          echo "Using saved JAR path: $JAR_PATH"
-        else
-          # 대안: 다시 찾기
-          PROJECT_DIR="$(find . -name pom.xml -type f -printf '%h\n' | head -n1)"
-          if [ -n "$PROJECT_DIR" ] && [ -d "$PROJECT_DIR/target" ]; then
-            JAR_PATH="$(ls -1 $PROJECT_DIR/target/*.jar | head -n1)"
-          else
-            echo "Cannot locate JAR file"; exit 1
-          fi
-        fi
-        
-        [ -f "$JAR_PATH" ] || { echo "JAR file not found: $JAR_PATH"; exit 1; }
+        # Recompute locations (phases don't share shell vars)
+        PROJECT_DIR="$(find . -maxdepth 3 -type f -name pom.xml -printf '%h\n' | head -n1)"
+        [ -n "$PROJECT_DIR" ] || { echo "No pom.xml found in post_build"; exit 1; }
+        JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar | head -n1)"
+        [ -n "$JAR_PATH" ] || { echo "JAR not found in post_build"; exit 1; }
         echo "Using JAR: $JAR_PATH"
-
       - mkdir -p artifact/app/build/libs artifact/app/public
       - cp "$JAR_PATH" artifact/app/build/libs/app.jar
-      - cp -r appspec.yml scripts systemd artifact/ 2>/dev/null || echo "Some config files missing, continuing..."
-      - printf '{"commit":"%s","builtAt":"%s"}' "${CODEBUILD_RESOLVED_SOURCE_VERSION:-unknown}" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
+      - cp -r appspec.yml scripts systemd artifact/
+      - printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
 
 artifacts:
   files:
