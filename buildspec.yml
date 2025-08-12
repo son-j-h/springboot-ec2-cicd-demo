@@ -17,10 +17,21 @@ phases:
     commands:
       - |
         set -euxo pipefail
-        # pom.xml이 어디에 있든 한 번만 정확히 찾기 (루트/app/한폴더 더 위 모두 대응)
-        PROJECT_DIR="$(dirname "$(find . -type f -name pom.xml ! -path '*/target/*' | head -n1)")"
-        if [ -z "${PROJECT_DIR:-}" ]; then
-          echo "❌ pom.xml not found in workspace"; find . -maxdepth 3 -type d -print; exit 1
+        echo "=== TOP-LEVEL LIST ==="; ls -la
+        echo "=== TOP 3-LEVEL TREE ==="; find . -maxdepth 3 -print | sed -n '1,200p'
+        # 1) 흔한 후보 경로 먼저 시도
+        PROJECT_DIR=""
+        for d in . app src springboot-ec2-cicd-demo springboot-ec2-cicd-demo/app; do
+          if [ -f "$d/pom.xml" ]; then PROJECT_DIR="$d"; break; fi
+        done
+        # 2) 그래도 못 찾으면 전체 검색
+        if [ -z "${PROJECT_DIR}" ]; then
+          POM="$(find . -type f -name pom.xml ! -path '*/target/*' -print -quit || true)"
+          if [ -n "${POM}" ]; then PROJECT_DIR="$(dirname "$POM")"; fi
+        fi
+        if [ -z "${PROJECT_DIR}" ]; then
+          echo "❌ pom.xml not found anywhere under workspace"
+          exit 1
         fi
         echo "✅ PROJECT_DIR=${PROJECT_DIR}"
         printf 'export PROJECT_DIR=%q\n' "$PROJECT_DIR" > /tmp/build_vars.sh
@@ -32,10 +43,9 @@ phases:
         source /tmp/build_vars.sh
         echo "Building with pom: ${PROJECT_DIR}/pom.xml"
         mvn -B -DskipTests -f "${PROJECT_DIR}/pom.xml" clean package
-        # 메인 JAR만 선택 (sources/javadoc/original 제외)
-        JAR_PATH="$(find "${PROJECT_DIR}/target" -maxdepth 1 -type f -name '*.jar' \
-          ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-original.jar' | head -n1 || true)"
-        if [ -z "${JAR_PATH:-}" ]; then
+        # pick the main app jar (exclude sources/javadoc/original)
+        JAR_PATH="$(ls -1 "${PROJECT_DIR}/target"/*.jar 2>/dev/null | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1 || true)"
+        if [ -z "${JAR_PATH}" ]; then
           echo "❌ JAR not found under ${PROJECT_DIR}/target"
           ls -la "${PROJECT_DIR}/target" || true
           exit 1
@@ -51,12 +61,11 @@ phases:
         echo "Bundling artifacts"
         mkdir -p artifact/app/build/libs artifact/app/public
         cp "${JAR_PATH}" artifact/app/build/libs/app.jar
-        # 보조 파일들(있으면 복사)
         [ -f appspec.yml ] && cp appspec.yml artifact/ || echo "⚠️ appspec.yml not found"
         [ -d scripts ] && cp -r scripts artifact/ || echo "⚠️ scripts/ not found"
         [ -d systemd ] && cp -r systemd artifact/ || echo "⚠️ systemd/ not found"
         printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
-        echo "Artifact tree:"; find artifact -type f -print
+        echo "=== ARTIFACT TREE ==="; find artifact -type f -print
 
 artifacts:
   files:
