@@ -13,26 +13,22 @@ phases:
       - set -euxo pipefail
       - echo "Detect project dir"
       - |
-        PROJECT_DIR="$(find . -maxdepth 3 -type f -name pom.xml -printf '%h\n' | head -n1)"
-        if [ -z "$PROJECT_DIR" ]; then echo "No pom.xml found"; exit 1; fi
+        PROJECT_DIR="$(dirname "$(find . -type f -name pom.xml | head -n1)")"
+        if [ -z "$PROJECT_DIR" ]; then
+          echo "No pom.xml found"; echo "== workspace =="; pwd; ls -la; echo "== tree (top) =="; find . -maxdepth 3 -type d -print
+          exit 1
+        fi
         echo "Building in: $PROJECT_DIR"
         mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
-      - |
-        # Save jar path for this phase (for debugging)
-        if ls "$PROJECT_DIR/target"/*.jar >/dev/null 2>&1; then
-          JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar | head -n1)"
-          echo "Built JAR (build phase): $JAR_PATH"
-        else
-          echo "No JAR produced"; exit 1
-        fi
+        # verify jar exists (for clearer error)
+        ls -1 "$PROJECT_DIR/target"/*.jar | head -n1
 
   post_build:
     commands:
       - set -euxo pipefail
       - echo "Bundle artifacts for CodeDeploy"
       - |
-        # Recompute locations (phases don't share shell vars)
-        PROJECT_DIR="$(find . -maxdepth 3 -type f -name pom.xml -printf '%h\n' | head -n1)"
+        PROJECT_DIR="$(dirname "$(find . -type f -name pom.xml | head -n1)")"
         [ -n "$PROJECT_DIR" ] || { echo "No pom.xml found in post_build"; exit 1; }
         JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar | head -n1)"
         [ -n "$JAR_PATH" ] || { echo "JAR not found in post_build"; exit 1; }
