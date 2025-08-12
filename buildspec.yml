@@ -1,0 +1,37 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - echo "Install JDK 17 and Maven"
+      - yum install -y java-17-amazon-corretto-headless maven || true
+  build:
+    commands:
+      - echo "Build Spring Boot app (skip tests for speed)"
+      - cd app
+      - mvn -B -DskipTests clean package
+      - cd ..
+  post_build:
+    commands:
+      - echo "Create build metadata"
+      - mkdir -p app/public
+      - |
+        cat > app/public/build.json <<'EOF'
+        {
+          "commit": "${CODEBUILD_RESOLVED_SOURCE_VERSION}",
+          "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        }
+        EOF
+      - echo "Prepare artifact layout"
+      - mkdir -p artifact/app/build/libs
+      - cp -r appspec.yml scripts systemd artifact/
+      - cp app/target/*.jar artifact/app/build/libs/app.jar
+      - cp app/public/build.json artifact/app/public/build.json
+artifacts:
+  files:
+    - appspec.yml
+    - scripts/**/*
+    - systemd/**/*
+    - app/build/libs/app.jar
+    - app/public/build.json
+  base-directory: artifact
