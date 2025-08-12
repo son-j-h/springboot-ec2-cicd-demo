@@ -5,25 +5,36 @@ phases:
     commands:
       - echo "Install JDK 17 & Maven if needed"
       - yum -y install java-17-amazon-corretto-headless maven || (apt-get update && apt-get -y install openjdk-17-jdk maven)
+
   build:
     commands:
       - |
-        # 프로젝트 위치 자동 감지
+        # Maven 프로젝트 위치 자동 감지
         if [ -f pom.xml ]; then
-          PROJECT_DIR=.
+          MVN_DIR=.
         elif [ -f app/pom.xml ]; then
-          PROJECT_DIR=app
+          MVN_DIR=app
         else
           echo "No pom.xml found"; exit 1
         fi
-        echo "Using project dir: $PROJECT_DIR"
-        mvn -f "$PROJECT_DIR/pom.xml" -B -DskipTests clean package
-        export JAR_DIR="$PROJECT_DIR/target"
+        echo "Building in: $MVN_DIR"
+        mvn -f "$MVN_DIR/pom.xml" -B -DskipTests clean package
+
   post_build:
     commands:
       - echo "Bundle artifacts for CodeDeploy"
+      - |
+        # 빌드 결과 JAR 경로 재계산 (단계가 달라 변수 재설정 필요)
+        if ls target/*.jar >/dev/null 2>&1; then
+          JAR_PATH=$(ls -1 target/*.jar | head -n1)
+        elif ls app/target/*.jar >/dev/null 2>&1; then
+          JAR_PATH=$(ls -1 app/target/*.jar | head -n1)
+        else
+          echo "JAR not found"; exit 1
+        fi
+        echo "Using JAR: $JAR_PATH"
       - mkdir -p artifact/app/build/libs artifact/app/public
-      - cp ${JAR_DIR}/*.jar artifact/app/build/libs/app.jar
+      - cp "$JAR_PATH" artifact/app/build/libs/app.jar
       - cp -r appspec.yml scripts systemd artifact/
       - printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
 
