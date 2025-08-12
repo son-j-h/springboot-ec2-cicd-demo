@@ -5,61 +5,39 @@ phases:
     runtime-versions:
       java: corretto17
     commands:
-      - set -euxo pipefail
-      - echo "Install/verify Maven"
-      - (mvn -v) || (yum -y install maven || (apt-get update && apt-get -y install maven))
-      - java -version || true
-      - mvn -version || true
+      - echo "Install Maven if missing"
+      - |
+        if ! command -v mvn >/dev/null 2>&1; then
+          yum -y install maven || (apt-get update && apt-get -y install maven)
+        fi
+      - mvn -version
 
   pre_build:
     commands:
-      - set -euxo pipefail
-      - cd "$CODEBUILD_SRC_DIR"
-      - echo "Workspace: $PWD"; ls -la
-      - echo "Locate pom.xml"
-      - |
-        if [ -f "./app/pom.xml" ]; then
-          PROJECT_DIR="app"
-        elif [ -f "./pom.xml" ]; then
-          PROJECT_DIR="."
-        else
-          echo "❌ pom.xml not found in ./ or ./app"
-          echo "Top-level tree:"; find . -maxdepth 2 -type f -name 'pom.xml' -o -name '*.java' || true
-          exit 1
-        fi
-        echo "✅ PROJECT_DIR=$PROJECT_DIR"
-        echo "$PROJECT_DIR" > /tmp/PROJECT_DIR
+      - echo "Use project at ./app (pom.xml here)"
+      - echo app > /tmp/PROJECT_DIR
 
   build:
     commands:
-      - set -euxo pipefail
-      - PROJECT_DIR="$(cat /tmp/PROJECT_DIR)"
-      - echo "Build in: $PROJECT_DIR"
-      - mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
       - |
-        # Pick the application JAR (exclude sources/javadoc/original)
-        JAR_PATH="$(ls -1 "$PROJECT_DIR/target/"*.jar | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1 || true)"
-        if [ -z "${JAR_PATH:-}" ]; then
-          echo "❌ JAR not found under $PROJECT_DIR/target"
-          ls -la "$PROJECT_DIR/target" || true
-          exit 1
-        fi
-        echo "✅ JAR_PATH=$JAR_PATH"
+        set -e
+        PROJECT_DIR="$(cat /tmp/PROJECT_DIR)"
+        mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
+        JAR_PATH="$(ls -1 "$PROJECT_DIR/target"/*.jar | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1)"
+        [ -n "$JAR_PATH" ] || { echo "JAR not found under $PROJECT_DIR/target"; ls -la "$PROJECT_DIR/target" || true; exit 1; }
         echo "$JAR_PATH" > /tmp/JAR_PATH
 
   post_build:
     commands:
-      - set -euxo pipefail
-      - JAR_PATH="$(cat /tmp/JAR_PATH)"
-      - echo "Bundle artifacts"
-      - mkdir -p artifact/app/build/libs artifact/app/public
-      - cp "$JAR_PATH" artifact/app/build/libs/app.jar
       - |
-        [ -f appspec.yml ] && cp appspec.yml artifact/ || echo "⚠️ appspec.yml not found"
-        [ -d scripts ] && cp -r scripts artifact/ || echo "⚠️ scripts/ not found"
-        [ -d systemd ] && cp -r systemd artifact/ || echo "⚠️ systemd/ not found"
-      - printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
-      - echo "Artifact tree:" && find artifact -type f | sed 's/^/ - /'
+        set -e
+        JAR_PATH="$(cat /tmp/JAR_PATH)"
+        mkdir -p artifact/app/build/libs artifact/app/public
+        cp "$JAR_PATH" artifact/app/build/libs/app.jar
+        [ -f appspec.yml ] && cp appspec.yml artifact/ || echo "appspec.yml not found (warn)"
+        [ -d scripts ] && cp -r scripts artifact/ || echo "scripts/ not found (warn)"
+        [ -d systemd ] && cp -r systemd artifact/ || echo "systemd/ not found (warn)"
+        printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
 
 artifacts:
   files:
