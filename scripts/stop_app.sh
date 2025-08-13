@@ -1,3 +1,5 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euxo pipefail
-sudo systemctl stop demo.service || true
+if systemctl is-active --quiet demo.service; then
+  sudo systemctl stop demo.service
+fi
