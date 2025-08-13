@@ -33,7 +33,7 @@ phases:
       - rm -rf artifact && mkdir -p artifact/app artifact/app/public
       - cp "${JAR_PATH}" artifact/app/app.jar
       - cp appspec.yml artifact/
-      - cp -r scripts artifact/
+      - cp -r app/scripts artifact/
       - cp -r systemd artifact/
       - printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
       - echo "==== artifact tree ====" && find artifact -maxdepth 3 -type f -print
