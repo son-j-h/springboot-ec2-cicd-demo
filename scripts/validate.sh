@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-URL="http://localhost:8080/health"
+URL="http://localhost:8080/actuator/health"  # ✅ Spring Boot Actuator 경로
 echo "[validate] probing ${URL}"
 
 for i in {1..30}; do
