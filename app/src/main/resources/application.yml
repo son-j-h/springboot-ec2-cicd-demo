@@ -59,7 +59,7 @@ spring:
       data-locations: classpath:data.sql
 
 server:
-  port: 80
+  port: 8080
 
 logging:
   level:
