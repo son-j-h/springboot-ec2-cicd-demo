@@ -1,15 +1,13 @@
 [Unit]
-Description=Spring Boot Demo Service
+Description=Demo Spring Boot app
 After=network.target
 
 [Service]
-Type=simple
 User=ec2-user
 WorkingDirectory=/home/ec2-user/app
 ExecStart=/usr/bin/java -jar /home/ec2-user/app/app.jar
-Restart=on-failure
+Restart=always
 RestartSec=5
-LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
