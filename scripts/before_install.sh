@@ -11,4 +11,4 @@ if ! command -v java >/dev/null 2>&1; then
   sudo yum -y install java-17-amazon-corretto-headless || sudo dnf -y install java-17-amazon-corretto-headless || true
 fi
 
-# systemd 관련 코드 완전히 제거됨!
+# systemd 관련 로직 제거 (ApplicationStart에서 처리)
