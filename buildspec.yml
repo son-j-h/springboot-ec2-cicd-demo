@@ -1,23 +1,56 @@
 version: 0.2
-
 phases:
   install:
-    runtime-versions:
-      java: corretto17
     commands:
-      - echo "Java installation completed"
-      - java -version
+      - |
+        set -e
+        if ! command -v mvn >/dev/null 2>&1; then
+          yum -y install maven || (apt-get update && apt-get -y install maven)
+        fi
+        mvn -version || true
+
+  pre_build:
+    commands:
+      - |
+        set -e
+        PROJECT_DIR="app"
+        if [ ! -f "$PROJECT_DIR/pom.xml" ]; then
+          echo "pom not found at $PROJECT_DIR/pom.xml"
+          find . -maxdepth 3 -name pom.xml -print || true
+          exit 1
+        fi
+        echo "$PROJECT_DIR" > /tmp/PROJECT_DIR
 
   build:
     commands:
-      - echo "Starting simple build..."
-      - mvn clean package -DskipTests -Dquiet=true
-      - echo "Build completed"
-      - ls -la target/
+      - |
+        set -e
+        PROJECT_DIR="$(cat /tmp/PROJECT_DIR)"
+        mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
+        JAR="$(ls -1 "$PROJECT_DIR/target"/*.jar 2>/dev/null | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1 || true)"
+        if [ -z "$JAR" ]; then
+          echo "jar not found under $PROJECT_DIR/target"; ls -la "$PROJECT_DIR/target" || true
+          exit 1
+        fi
+        echo "$JAR" > /tmp/JAR
+
+  post_build:
+    commands:
+      - |
+        set -e
+        JAR="$(cat /tmp/JAR)"
+        mkdir -p artifact/app/build/libs artifact/app/public
+        cp "$JAR" artifact/app/build/libs/app.jar
+        [ -f appspec.yml ] && cp appspec.yml artifact/ || true
+        [ -d scripts ] && cp -r scripts artifact/ || true
+        [ -d systemd ] && cp -r systemd artifact/ || true
+        printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
 
 artifacts:
   files:
-    - target/*.jar
     - appspec.yml
     - scripts/**/*
-  base-directory: .
+    - systemd/**/*
+    - app/build/libs/app.jar
+    - app/public/build.json
+  base-directory: artifact
