@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-URL="http://localhost:8080/"
+URL="http://localhost:8080/health"
 echo "[validate] probing ${URL}"
 
 for i in {1..30}; do
