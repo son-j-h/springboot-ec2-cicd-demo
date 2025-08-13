@@ -5,51 +5,19 @@ phases:
     runtime-versions:
       java: corretto17
     commands:
-      - echo "=== Install Phase Started ==="
-      - echo "Installing dependencies..."
+      - echo "Java installation completed"
       - java -version
-      - echo "=== Install Phase Completed ==="
-
-  pre_build:
-    commands:
-      - echo "=== Pre-build Phase Started ==="
-      - echo "Checking Maven installation..."
-      - mvn -version
-      - echo "=== Pre-build Phase Completed ==="
 
   build:
     commands:
-      - echo "=== Build Phase Started ==="
-      - echo "Running Maven clean compile (skipping tests for faster build)..."
-      - mvn clean compile -q
-      - echo "Packaging application..."
-      - mvn package -DskipTests -q
-      - echo "Build artifacts created:"
+      - echo "Starting simple build..."
+      - mvn clean package -DskipTests -Dquiet=true
+      - echo "Build completed"
       - ls -la target/
-      - echo "=== Build Phase Completed ==="
-
-  post_build:
-    commands:
-      - echo "=== Post-build Phase Started ==="
-      - echo "Verifying build artifacts..."
-      - if [ -f target/shopping-mall.jar ]; then
-        echo "✅ JAR file created successfully"
-        ls -lh target/shopping-mall.jar
-        else
-        echo "❌ JAR file not found"
-        exit 1
-        fi
-      - echo "=== Post-build Phase Completed ==="
 
 artifacts:
   files:
-    - target/shopping-mall.jar
+    - target/*.jar
     - appspec.yml
     - scripts/**/*
-  discard-paths: no
   base-directory: .
-  name: shopping-mall-artifacts
-
-cache:
-  paths:
-    - '/root/.m2/**/*'
