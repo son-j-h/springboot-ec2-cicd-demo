@@ -3,65 +3,43 @@ version: 0.2
 phases:
   install:
     commands:
-      - |
-        set -e
-        # Maven 없으면 설치 (AL2/Ubuntu 모두 커버)
-        if ! command -v mvn >/dev/null 2>&1; then
-          yum -y install maven || (apt-get update && apt-get -y install maven)
-        fi
-        mvn -version || true
-        java -version || true
+      - echo "Install Maven if needed"
+      - if ! command -v mvn >/dev/null 2>&1; then yum -y install maven || (apt-get update && apt-get -y install maven); fi
+      - mvn -version || true
 
   pre_build:
     commands:
-      - |
-        set -euo pipefail
-        echo "CODEBUILD_SRC_DIR=$CODEBUILD_SRC_DIR"
-        echo "== TOP 2 LEVELS =="; find . -maxdepth 2 -print
-
-        # pom.xml 자동 탐지 (target 제외)
-        POM="$(find . -maxdepth 6 -type f -name pom.xml ! -path '*/target/*' -print -quit || true)"
-        if [ -z "${POM:-}" ]; then
-          echo "❌ pom.xml not found anywhere under workspace"; exit 1
-        fi
-        PROJECT_DIR="$(dirname "$POM")"
-        echo "✅ Found pom: $POM"
-        printf 'export PROJECT_DIR=%q\n' "$PROJECT_DIR" > /tmp/build_vars.sh
+      - set -euo pipefail
+      - echo "Project tree (top 2 levels)"; find . -maxdepth 2 -print
 
   build:
     commands:
-      - |
-        set -euo pipefail
-        source /tmp/build_vars.sh
-        echo "Building with $PROJECT_DIR/pom.xml"
-        mvn -B -DskipTests -f "$PROJECT_DIR/pom.xml" clean package
-
-        # 메인 JAR만 선택 (sources/javadoc/original 제외)
-        JAR="$(ls -1 "$PROJECT_DIR/target"/*.jar 2>/dev/null | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1 || true)"
-        if [ -z "${JAR:-}" ]; then
-          echo "❌ jar not found under $PROJECT_DIR/target"; ls -la "$PROJECT_DIR/target" || true; exit 1
-        fi
-        printf 'export JAR=%q\n' "$JAR" >> /tmp/build_vars.sh
-        echo "✅ JAR=$JAR"
+      - set -e
+      - mvn -B -DskipTests -f app/pom.xml clean package
+      - JAR_PATH=$(ls -1 app/target/*.jar | grep -v -E '(-sources|-javadoc|-original)\.jar$' | head -n1)
+      - echo "JAR=$JAR_PATH"
+      - echo "$JAR_PATH" > /tmp/JAR_PATH
 
   post_build:
     commands:
-      - |
-        set -euo pipefail
-        source /tmp/build_vars.sh
-        mkdir -p artifact/app/build/libs artifact/app/public
-        cp "$JAR" artifact/app/build/libs/app.jar
-        [ -f appspec.yml ] && cp appspec.yml artifact/ || echo "warn: no appspec.yml"
-        [ -d scripts ] && cp -r scripts artifact/ || echo "warn: no scripts/"
-        [ -d systemd ] && cp -r systemd artifact/ || echo "warn: no systemd/"
-        printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
-        echo "== ARTIFACT TREE =="; find artifact -type f -print
+      - set -e
+      - JAR_PATH="$(cat /tmp/JAR_PATH)"
+      - mkdir -p artifact/app/build/libs artifact/app/public
+      - cp "$JAR_PATH" artifact/app/build/libs/app.jar
+      - cp appspec.yml artifact/
+      - cp -r scripts systemd artifact/
+      - printf '{"commit":"%s","builtAt":"%s"}' "$CODEBUILD_RESOLVED_SOURCE_VERSION" "$(date -u +%FT%TZ)" > artifact/app/public/build.json
+      # ===== 디버깅 출력 (매우 중요) =====
+      - echo "==== artifact contents ===="
+      - find artifact -maxdepth 2 -type f -print
+      - echo "==== artifact/appspec.yml ===="
+      - sed -n '1,120p' artifact/appspec.yml
 
 artifacts:
+  base-directory: artifact
   files:
     - appspec.yml
     - scripts/**/*
     - systemd/**/*
     - app/build/libs/app.jar
     - app/public/build.json
-  base-directory: artifact
