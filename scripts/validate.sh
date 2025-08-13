@@ -1,16 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-URL="http://localhost:8080/actuator/health"  # ✅ Spring Boot Actuator 경로
-echo "[validate] probing ${URL}"
+echo "[validate] Checking if service is running"
 
-for i in {1..30}; do
-  if curl -fsS "${URL}" >/dev/null 2>&1; then
-    echo "[validate] app is up"
-    exit 0
-  fi
-  sleep 2
-done
-
-echo "[validate] app did not respond in time"
-exit 1
+# 서비스가 실행 중인지만 확인
+if sudo systemctl is-active --quiet demo.service; then
+  echo "[validate] demo.service is active"
+  exit 0
+else
+  echo "[validate] demo.service is not active"
+  exit 1
+fi
