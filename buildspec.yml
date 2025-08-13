@@ -5,6 +5,7 @@ phases:
     commands:
       - |
         set -e
+        # Maven 없으면 설치 (AL2/Ubuntu 모두 커버)
         if ! command -v mvn >/dev/null 2>&1; then
           yum -y install maven || (apt-get update && apt-get -y install maven)
         fi
@@ -18,7 +19,7 @@ phases:
         echo "CODEBUILD_SRC_DIR=$CODEBUILD_SRC_DIR"
         echo "== TOP 2 LEVELS =="; find . -maxdepth 2 -print
 
-        # pom.xml 자동 탐지 (target 폴더 제외)
+        # pom.xml 자동 탐지 (target 제외)
         POM="$(find . -maxdepth 6 -type f -name pom.xml ! -path '*/target/*' -print -quit || true)"
         if [ -z "${POM:-}" ]; then
           echo "❌ pom.xml not found anywhere under workspace"; exit 1
