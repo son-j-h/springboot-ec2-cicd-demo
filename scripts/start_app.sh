@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euxo pipefail
+# Copy app jar from deployed location to service working directory
+sudo cp /home/ec2-user/app/app.jar /opt/demo/app.jar
+# Start service
 sudo systemctl enable demo.service
-sudo systemctl restart demo.service
-sleep 2
-sudo systemctl status demo.service --no-pager || true
+sudo systemctl start demo.service
